@@ -1950,6 +1950,24 @@ fn resolve_display_text(
     }
 }
 
+fn build_display_text(
+    response_text: &str,
+    parsed_text: &str,
+    has_tool_calls: bool,
+    has_native_tool_calls: bool,
+) -> String {
+    let resolved = resolve_display_text(
+        response_text,
+        parsed_text,
+        has_tool_calls,
+        has_native_tool_calls,
+    );
+    if resolved.is_empty() {
+        return resolved;
+    }
+    strip_tool_result_blocks(&resolved)
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ParsedToolCall {
     pub(crate) name: String,
@@ -2837,11 +2855,12 @@ pub(crate) async fn run_tool_call_loop(
             }
         };
 
-        let display_text = if parsed_text.is_empty() {
-            response_text.clone()
-        } else {
-            parsed_text
-        };
+        let display_text = build_display_text(
+            &response_text,
+            &parsed_text,
+            !tool_calls.is_empty(),
+            !native_tool_calls.is_empty(),
+        );
 
         // ── Progress: LLM responded ─────────────────────────────
         if let Some(ref tx) = on_delta {
@@ -7092,6 +7111,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_tool_call_loop_strips_tool_result_artifacts_from_on_delta() {
+        let provider = ScriptedProvider::from_text_responses(vec![
+            r#"<tool_call>
+{"name":"count_tool","arguments":{"value":"A"}}
+</tool_call>
+<tool_result name="count_tool" status="ok">
+{"value":"A"}
+</tool_result>
+Let me check that first."#,
+            "Final answer",
+        ]);
+
+        let invocations = Arc::new(AtomicUsize::new(0));
+        let tools_registry: Vec<Box<dyn Tool>> = vec![Box::new(CountingTool::new(
+            "count_tool",
+            Arc::clone(&invocations),
+        ))];
+
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("run parsed tool call with tool result artifacts"),
+        ];
+        let observer = NoopObserver;
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            None,
+            "telegram",
+            None,
+            &crate::config::MultimodalConfig::default(),
+            4,
+            None,
+            Some(tx),
+            None,
+            &[],
+            &[],
+            None,
+            None,
+            &crate::config::PacingConfig::default(),
+            0,
+            0,
+            None,
+        )
+        .await
+        .expect("tool result artifacts should be stripped before on_delta");
+
+        let mut content_chunks: Vec<String> = Vec::new();
+        while let Some(delta) = rx.recv().await {
+            if let DraftEvent::Content(text) = delta {
+                content_chunks.push(text);
+            }
+        }
+
+        assert!(
+            content_chunks
+                .iter()
+                .any(|text| text == "Let me check that first.\n"),
+            "clean narration should still be relayed"
+        );
+        assert!(
+            content_chunks
+                .iter()
+                .all(|text| !text.contains("<tool_call") && !text.contains("<tool_result")),
+            "draft updates should not include raw tool artifacts"
+        );
+        assert_eq!(result, "Final answer");
+        assert_eq!(invocations.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn run_tool_call_loop_consumes_provider_stream_for_final_response() {
         let provider =
             StreamingScriptedProvider::from_text_responses(vec!["streamed final answer"]);
@@ -7485,6 +7582,39 @@ mod tests {
     fn resolve_display_text_uses_response_text_for_final_turns() {
         let display = resolve_display_text("Final answer", "", false, false);
         assert_eq!(display, "Final answer");
+    }
+
+    #[test]
+    fn build_display_text_strips_tool_results_from_tool_turn_narration() {
+        let display = build_display_text(
+            "<tool_call>{\"name\":\"shell\"}</tool_call>\n<tool_result name=\"shell\">pwd</tool_result>\nLet me check that.",
+            "<tool_result name=\"shell\">pwd</tool_result>\nLet me check that.",
+            true,
+            false,
+        );
+        assert_eq!(display, "Let me check that.");
+    }
+
+    #[test]
+    fn build_display_text_hides_tool_only_turns() {
+        let display = build_display_text(
+            "<tool_call>{\"name\":\"shell\"}</tool_call>",
+            "",
+            true,
+            false,
+        );
+        assert!(display.is_empty());
+    }
+
+    #[test]
+    fn build_display_text_strips_tool_results_from_final_turns() {
+        let display = build_display_text(
+            "<tool_result name=\"shell\">pwd</tool_result>\nDone.",
+            "<tool_result name=\"shell\">pwd</tool_result>\nDone.",
+            false,
+            false,
+        );
+        assert_eq!(display, "Done.");
     }
 
     #[test]
