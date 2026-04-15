@@ -45,10 +45,12 @@ COPY crates/aardvark-sys/ crates/aardvark-sys/
 COPY crates/zeroclaw-macros/ crates/zeroclaw-macros/
 COPY apps/tauri/ apps/tauri/
 # Create dummy targets declared in Cargo.toml so manifest parsing succeeds.
-RUN mkdir -p src benches \
+RUN mkdir -p src benches apps/tauri/src \
     && echo "fn main() {}" > src/main.rs \
     && echo "" > src/lib.rs \
-    && echo "fn main() {}" > benches/agent_benchmarks.rs
+    && echo "fn main() {}" > benches/agent_benchmarks.rs \
+    && echo "fn main() {}" > apps/tauri/src/main.rs \
+    && echo "" > apps/tauri/src/lib.rs
 RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=zeroclaw-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=zeroclaw-target,target=/app/target,sharing=locked \
@@ -64,7 +66,6 @@ COPY src/ src/
 COPY benches/ benches/
 COPY crates/aardvark-sys/ crates/aardvark-sys/
 COPY crates/zeroclaw-macros/ crates/zeroclaw-macros/
-COPY apps/tauri/ apps/tauri/
 COPY --from=web-builder /web/dist web/dist
 RUN touch src/main.rs
 RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
