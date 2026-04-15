@@ -65,7 +65,6 @@ COPY benches/ benches/
 COPY crates/aardvark-sys/ crates/aardvark-sys/
 COPY crates/zeroclaw-macros/ crates/zeroclaw-macros/
 COPY apps/tauri/ apps/tauri/
-COPY docs/assets/zeroclaw-trans.png docs/assets/zeroclaw-trans.png
 COPY --from=web-builder /web/dist web/dist
 RUN touch src/main.rs
 RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
