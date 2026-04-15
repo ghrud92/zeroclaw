@@ -283,13 +283,16 @@ pub fn scrub_credentials(input: &str) -> String {
 pub const PROGRESS_MIN_INTERVAL_MS: u64 = 500;
 
 /// Delta sent from the agent loop to the channel's draft updater.
-/// Append-only — no clear/reset variant exists by design.
+/// Append-only — channels can treat `Flush` as "send what you have and reopen".
 #[derive(Debug, Clone)]
 pub enum StreamDelta {
     /// Response text to append to the message buffer.
     Text(String),
     /// Ephemeral tool progress (not part of the response body).
     Status(String),
+    /// Finalize the current accumulated draft as a standalone user-visible
+    /// message, then let the channel reopen a fresh draft for subsequent work.
+    Flush,
 }
 
 /// Backwards-compatible alias while callers are migrated.
@@ -572,6 +575,12 @@ async fn consume_provider_streaming_response(
             StreamEvent::ToolCall(tool_call) => {
                 outcome.tool_calls.push(tool_call);
                 suppress_forwarding = true;
+                if outcome.forwarded_live_deltas {
+                    if let Some(tx) = delta_sender {
+                        let _ = tx.send(StreamDelta::Flush).await;
+                    }
+                    outcome.forwarded_live_deltas = false;
+                }
             }
             StreamEvent::PreExecutedToolCall { .. } | StreamEvent::PreExecutedToolResult { .. } => {
                 // Pre-executed tool events are for observability only.
@@ -602,6 +611,12 @@ async fn consume_provider_streaming_response(
                         || lowered.contains("\"tool_calls\"")
                 } {
                     suppress_forwarding = true;
+                    if outcome.forwarded_live_deltas {
+                        if let Some(tx) = delta_sender {
+                            let _ = tx.send(StreamDelta::Flush).await;
+                        }
+                        outcome.forwarded_live_deltas = false;
+                    }
                 }
 
                 if suppress_forwarding {
@@ -1426,6 +1441,7 @@ pub async fn run_tool_call_loop(
                     narration.push('\n');
                 }
                 let _ = tx.send(StreamDelta::Text(narration)).await;
+                let _ = tx.send(StreamDelta::Flush).await;
             }
             if !silent {
                 print!("{display_text}");
@@ -2764,6 +2780,9 @@ pub async fn run(
                         StreamDelta::Text(text) => {
                             content_streamed_flag.store(true, std::sync::atomic::Ordering::Relaxed);
                             print!("{text}");
+                            let _ = std::io::stdout().flush();
+                        }
+                        StreamDelta::Flush => {
                             let _ = std::io::stdout().flush();
                         }
                     }
@@ -5528,11 +5547,25 @@ mod tests {
                 .any(|delta| matches!(delta, StreamDelta::Text(t) if t == "Task started. Waiting 30 seconds before checking status.\n")),
             "native assistant text should be relayed to on_delta"
         );
+        let flush_idx = deltas
+            .iter()
+            .position(|delta| matches!(delta, StreamDelta::Flush))
+            .expect("tool-call narration should flush before final answer streaming");
         assert!(
             deltas
                 .iter()
                 .any(|delta| matches!(delta, StreamDelta::Status(t) if t.starts_with("\u{1f4ac} Got 1 tool call(s)"))),
             "tool-call progress line should still be relayed"
+        );
+        let explanation_idx = deltas
+            .iter()
+            .position(|delta| {
+                matches!(delta, StreamDelta::Text(t) if t == "Task started. Waiting 30 seconds before checking status.\n")
+            })
+            .expect("native assistant text should be present");
+        assert!(
+            explanation_idx < flush_idx,
+            "native assistant text should flush before tool progress continues"
         );
         assert!(
             result.ends_with("Final answer"),
@@ -5589,6 +5622,7 @@ mod tests {
                 StreamDelta::Text(text) => {
                     visible_deltas.push_str(&text);
                 }
+                StreamDelta::Flush => {}
             }
         }
 
@@ -5657,6 +5691,7 @@ mod tests {
                 StreamDelta::Text(text) => {
                     visible_deltas.push_str(&text);
                 }
+                StreamDelta::Flush => {}
             }
         }
 
@@ -5732,6 +5767,7 @@ mod tests {
                 StreamDelta::Text(text) => {
                     visible_deltas.push_str(&text);
                 }
+                StreamDelta::Flush => {}
             }
         }
 
@@ -5816,6 +5852,7 @@ mod tests {
                 StreamDelta::Text(text) => {
                     visible_deltas.push_str(&text);
                 }
+                StreamDelta::Flush => {}
             }
         }
 
@@ -6879,6 +6916,7 @@ Let me check the result."#;
             .iter()
             .map(|d| match d {
                 StreamDelta::Status(t) | StreamDelta::Text(t) => t.as_str(),
+                StreamDelta::Flush => "",
             })
             .collect();
 
