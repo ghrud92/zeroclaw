@@ -2910,17 +2910,16 @@ pub(crate) async fn run_tool_call_loop(
             return Ok(display_text);
         }
 
-        // Native tool-call providers can return assistant text separately from
-        // the structured call payload; relay it to draft-capable channels.
+        // Tool-call turns can still contain user-facing narration (for both
+        // native and parsed/XML tool dispatch). Relay that narration to
+        // draft-capable channels before the loop continues.
         if !display_text.is_empty() {
-            if !native_tool_calls.is_empty() {
-                if let Some(ref tx) = on_delta {
-                    let mut narration = display_text.clone();
-                    if !narration.ends_with('\n') {
-                        narration.push('\n');
-                    }
-                    let _ = tx.send(DraftEvent::Content(narration)).await;
+            if let Some(ref tx) = on_delta {
+                let mut narration = display_text.clone();
+                if !narration.ends_with('\n') {
+                    narration.push('\n');
                 }
+                let _ = tx.send(DraftEvent::Content(narration)).await;
             }
             if !silent {
                 print!("{display_text}");
@@ -7005,6 +7004,88 @@ mod tests {
         assert!(
             explanation_idx < clear_idx,
             "native assistant text should arrive before final-answer draft clearing"
+        );
+        assert_eq!(result, "Final answer");
+        assert_eq!(invocations.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_relays_parsed_tool_call_text_via_on_delta() {
+        let provider = ScriptedProvider::from_text_responses(vec![
+            r#"Let me check that first.
+<tool_call>
+{"name":"count_tool","arguments":{"value":"A"}}
+</tool_call>"#,
+            "Final answer",
+        ]);
+
+        let invocations = Arc::new(AtomicUsize::new(0));
+        let tools_registry: Vec<Box<dyn Tool>> = vec![Box::new(CountingTool::new(
+            "count_tool",
+            Arc::clone(&invocations),
+        ))];
+
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("run parsed tool call"),
+        ];
+        let observer = NoopObserver;
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            None,
+            "telegram",
+            None,
+            &crate::config::MultimodalConfig::default(),
+            4,
+            None,
+            Some(tx),
+            None,
+            &[],
+            &[],
+            None,
+            None,
+            &crate::config::PacingConfig::default(),
+            0,
+            0,
+            None,
+        )
+        .await
+        .expect("parsed tool-call text should be relayed through on_delta");
+
+        let mut deltas: Vec<DraftEvent> = Vec::new();
+        while let Some(delta) = rx.recv().await {
+            deltas.push(delta);
+        }
+
+        let explanation_idx = deltas
+            .iter()
+            .position(
+                |delta| matches!(delta, DraftEvent::Content(t) if t == "Let me check that first.\n"),
+            )
+            .expect("parsed assistant text should be relayed to on_delta");
+        let clear_idx = deltas
+            .iter()
+            .position(|delta| matches!(delta, DraftEvent::Clear))
+            .expect("final answer streaming should clear prior draft state");
+
+        assert!(
+            deltas
+                .iter()
+                .any(|delta| matches!(delta, DraftEvent::Progress(t) if t.starts_with("\u{1f4ac} Got 1 tool call(s)"))),
+            "tool-call progress line should still be relayed"
+        );
+        assert!(
+            explanation_idx < clear_idx,
+            "parsed assistant text should arrive before final-answer draft clearing"
         );
         assert_eq!(result, "Final answer");
         assert_eq!(invocations.load(Ordering::SeqCst), 1);
