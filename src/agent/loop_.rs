@@ -268,6 +268,9 @@ pub(crate) const PROGRESS_MIN_INTERVAL_MS: u64 = 500;
 pub enum DraftEvent {
     /// Clear accumulated draft content (e.g. before streaming a new response).
     Clear,
+    /// Finalize the current accumulated draft as a standalone user-visible
+    /// message, then let the channel reopen a fresh draft for subsequent work.
+    Flush,
     /// Progress / status text — channels can show this in a status bar
     /// rather than in the message body (e.g. "🤔 Thinking...", "⏳ shell_command").
     Progress(String),
@@ -2067,7 +2070,7 @@ async fn consume_provider_streaming_response(
                 suppress_forwarding = true;
                 if outcome.forwarded_live_deltas {
                     if let Some(tx) = delta_sender {
-                        let _ = tx.send(DraftEvent::Clear).await;
+                        let _ = tx.send(DraftEvent::Flush).await;
                     }
                     outcome.forwarded_live_deltas = false;
                 }
@@ -2103,7 +2106,7 @@ async fn consume_provider_streaming_response(
                     suppress_forwarding = true;
                     if outcome.forwarded_live_deltas {
                         if let Some(tx) = delta_sender {
-                            let _ = tx.send(DraftEvent::Clear).await;
+                            let _ = tx.send(DraftEvent::Flush).await;
                         }
                         outcome.forwarded_live_deltas = false;
                     }
@@ -2939,6 +2942,7 @@ pub(crate) async fn run_tool_call_loop(
                     narration.push('\n');
                 }
                 let _ = tx.send(DraftEvent::Content(narration)).await;
+                let _ = tx.send(DraftEvent::Flush).await;
             }
             if !silent {
                 print!("{display_text}");
@@ -4262,6 +4266,9 @@ pub async fn run(
                     match event {
                         DraftEvent::Clear => {
                             let _ = writeln!(std::io::stderr());
+                        }
+                        DraftEvent::Flush => {
+                            let _ = std::io::stdout().flush();
                         }
                         DraftEvent::Progress(text) => {
                             if is_tty {
@@ -7009,6 +7016,10 @@ mod tests {
             .iter()
             .position(|delta| matches!(delta, DraftEvent::Content(t) if t == "Task started. Waiting 30 seconds before checking status.\n"))
             .expect("native assistant text should be relayed to on_delta");
+        let flush_idx = deltas
+            .iter()
+            .position(|delta| matches!(delta, DraftEvent::Flush))
+            .expect("tool-call narration should flush before final answer streaming");
         let clear_idx = deltas
             .iter()
             .position(|delta| matches!(delta, DraftEvent::Clear))
@@ -7021,8 +7032,8 @@ mod tests {
             "tool-call progress line should still be relayed"
         );
         assert!(
-            explanation_idx < clear_idx,
-            "native assistant text should arrive before final-answer draft clearing"
+            explanation_idx < flush_idx && flush_idx < clear_idx,
+            "native assistant text should flush before final-answer draft clearing"
         );
         assert_eq!(result, "Final answer");
         assert_eq!(invocations.load(Ordering::SeqCst), 1);
@@ -7091,6 +7102,10 @@ mod tests {
                 |delta| matches!(delta, DraftEvent::Content(t) if t == "Let me check that first.\n"),
             )
             .expect("parsed assistant text should be relayed to on_delta");
+        let flush_idx = deltas
+            .iter()
+            .position(|delta| matches!(delta, DraftEvent::Flush))
+            .expect("tool-call narration should flush before final answer streaming");
         let clear_idx = deltas
             .iter()
             .position(|delta| matches!(delta, DraftEvent::Clear))
@@ -7103,8 +7118,8 @@ mod tests {
             "tool-call progress line should still be relayed"
         );
         assert!(
-            explanation_idx < clear_idx,
-            "parsed assistant text should arrive before final-answer draft clearing"
+            explanation_idx < flush_idx && flush_idx < clear_idx,
+            "parsed assistant text should flush before final-answer draft clearing"
         );
         assert_eq!(result, "Final answer");
         assert_eq!(invocations.load(Ordering::SeqCst), 1);
@@ -7235,6 +7250,7 @@ Let me check that first."#,
                 DraftEvent::Clear => {
                     visible_deltas.clear();
                 }
+                DraftEvent::Flush => {}
                 DraftEvent::Progress(_) => {}
                 DraftEvent::Content(text) => {
                     visible_deltas.push_str(&text);
@@ -7306,6 +7322,7 @@ Let me check that first."#,
                 DraftEvent::Clear => {
                     visible_deltas.clear();
                 }
+                DraftEvent::Flush => {}
                 DraftEvent::Progress(_) => {}
                 DraftEvent::Content(text) => {
                     visible_deltas.push_str(&text);
@@ -7381,6 +7398,7 @@ Let me check that first."#,
                 DraftEvent::Clear => {
                     visible_deltas.clear();
                 }
+                DraftEvent::Flush => {}
                 DraftEvent::Progress(_) => {}
                 DraftEvent::Content(text) => {
                     visible_deltas.push_str(&text);
@@ -7465,6 +7483,7 @@ Let me check that first."#,
                 DraftEvent::Clear => {
                     visible_deltas.clear();
                 }
+                DraftEvent::Flush => {}
                 DraftEvent::Progress(_) => {}
                 DraftEvent::Content(text) => {
                     visible_deltas.push_str(&text);
@@ -9515,7 +9534,7 @@ Let me check the result."#;
             .iter()
             .filter_map(|d| match d {
                 DraftEvent::Progress(t) | DraftEvent::Content(t) => Some(t.as_str()),
-                DraftEvent::Clear => None,
+                DraftEvent::Clear | DraftEvent::Flush => None,
             })
             .collect();
 

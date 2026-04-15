@@ -2840,7 +2840,7 @@ async fn process_channel_message(
     };
 
     // Partial mode: send an initial draft message for progressive editing.
-    let draft_message_id = if use_draft_streaming {
+    let initial_draft_message_id = if use_draft_streaming {
         if let Some(channel) = target_channel.as_ref() {
             match channel
                 .send_draft(
@@ -2860,18 +2860,16 @@ async fn process_channel_message(
     } else {
         None
     };
+    let active_draft_message_id = Arc::new(Mutex::new(initial_draft_message_id));
 
     // Spawn the appropriate handler for the delta channel.
     let draft_updater = if use_draft_streaming {
         // Partial: accumulate text and edit a single draft message.
-        if let (Some(mut rx), Some(draft_id_ref), Some(channel_ref)) = (
-            delta_rx,
-            draft_message_id.as_deref(),
-            target_channel.as_ref(),
-        ) {
+        if let (Some(mut rx), Some(channel_ref)) = (delta_rx, target_channel.as_ref()) {
             let channel = Arc::clone(channel_ref);
             let reply_target = msg.reply_target.clone();
-            let draft_id = draft_id_ref.to_string();
+            let thread_ts = msg.thread_ts.clone();
+            let active_draft_message_id = Arc::clone(&active_draft_message_id);
             Some(tokio::spawn(async move {
                 use crate::agent::loop_::DraftEvent;
                 let mut accumulated = String::new();
@@ -2881,6 +2879,13 @@ async fn process_channel_message(
                             accumulated.clear();
                         }
                         DraftEvent::Progress(text) => {
+                            let draft_id = active_draft_message_id
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .clone();
+                            let Some(draft_id) = draft_id else {
+                                continue;
+                            };
                             if let Err(e) = channel
                                 .update_draft_progress(&reply_target, &draft_id, &text)
                                 .await
@@ -2890,12 +2895,67 @@ async fn process_channel_message(
                         }
                         DraftEvent::Content(text) => {
                             accumulated.push_str(&text);
+                            let draft_id = active_draft_message_id
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .clone();
+                            let Some(draft_id) = draft_id else {
+                                continue;
+                            };
                             if let Err(e) = channel
                                 .update_draft(&reply_target, &draft_id, &accumulated)
                                 .await
                             {
                                 tracing::debug!("Draft update failed: {e}");
                             }
+                        }
+                        DraftEvent::Flush => {
+                            if accumulated.trim().is_empty() {
+                                continue;
+                            }
+
+                            let current_draft_id = active_draft_message_id
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .clone();
+                            if let Some(draft_id) = current_draft_id {
+                                if let Err(e) = channel
+                                    .finalize_draft(&reply_target, &draft_id, &accumulated)
+                                    .await
+                                {
+                                    tracing::debug!("Draft flush finalize failed: {e}");
+                                }
+                            } else if let Err(e) = channel
+                                .send(
+                                    &SendMessage::new(&accumulated, &reply_target)
+                                        .in_thread(thread_ts.clone()),
+                                )
+                                .await
+                            {
+                                tracing::debug!("Draft flush send fallback failed: {e}");
+                            }
+
+                            accumulated.clear();
+
+                            let next_draft_id = match channel
+                                .send_draft(
+                                    &SendMessage::new("...", &reply_target)
+                                        .in_thread(thread_ts.clone()),
+                                )
+                                .await
+                            {
+                                Ok(id) => id,
+                                Err(e) => {
+                                    tracing::debug!(
+                                        "Failed to reopen draft on {}: {e}",
+                                        channel.name()
+                                    );
+                                    None
+                                }
+                            };
+                            *active_draft_message_id
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner()) = next_draft_id;
                         }
                     }
                 }
@@ -3096,6 +3156,10 @@ async fn process_channel_message(
         let _ = handle.await;
     }
     tracing::debug!("Post-loop: draft updater completed");
+    let draft_message_id = active_draft_message_id
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
 
     // Thread the final reply only if tools were used (multi-message response)
     if notify_observer_flag.tools_used.load(Ordering::Relaxed) && msg.channel != "cli" {
