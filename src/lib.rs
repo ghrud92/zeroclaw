@@ -31,79 +31,53 @@
     clippy::unnecessary_map_or,
     clippy::unused_self,
     clippy::cast_precision_loss,
-    clippy::unnecessary_wraps
+    clippy::unnecessary_wraps,
+    dead_code
 )]
 
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "agent-runtime")]
 pub mod agent;
-#[cfg(feature = "agent-runtime")]
 pub(crate) mod approval;
-#[cfg(feature = "agent-runtime")]
 pub(crate) mod auth;
-#[cfg(feature = "agent-runtime")]
 pub mod channels;
+pub(crate) mod cli_input;
 pub mod commands;
 pub mod config;
-#[cfg(feature = "agent-runtime")]
 pub(crate) mod cost;
-#[cfg(feature = "agent-runtime")]
 pub mod cron;
-#[cfg(feature = "agent-runtime")]
 pub(crate) mod daemon;
-#[cfg(feature = "agent-runtime")]
 pub(crate) mod doctor;
-#[cfg(feature = "gateway")]
 pub mod gateway;
-#[cfg(feature = "agent-runtime")]
 pub mod hands;
-#[cfg(feature = "agent-runtime")]
 pub(crate) mod hardware;
-#[cfg(feature = "agent-runtime")]
 pub(crate) mod health;
-#[cfg(feature = "agent-runtime")]
 pub(crate) mod heartbeat;
-#[cfg(feature = "agent-runtime")]
 pub mod hooks;
-#[cfg(feature = "agent-runtime")]
+pub mod i18n;
+pub(crate) mod identity;
 pub(crate) mod integrations;
 pub mod memory;
-#[cfg(feature = "agent-runtime")]
+pub(crate) mod migration;
 pub(crate) mod multimodal;
-#[cfg(feature = "agent-runtime")]
 pub mod nodes;
-#[cfg(feature = "agent-runtime")]
 pub mod observability;
-#[cfg(feature = "agent-runtime")]
 pub(crate) mod onboard;
-#[cfg(feature = "agent-runtime")]
 pub mod peripherals;
-#[cfg(feature = "agent-runtime")]
-pub mod platform;
 pub mod providers;
-#[cfg(feature = "agent-runtime")]
 pub mod rag;
-#[cfg(feature = "agent-runtime")]
 pub mod routines;
-#[cfg(feature = "agent-runtime")]
+pub mod runtime;
 pub(crate) mod security;
-#[cfg(feature = "agent-runtime")]
 pub(crate) mod service;
-#[cfg(feature = "agent-runtime")]
 pub(crate) mod skills;
-#[cfg(feature = "agent-runtime")]
 pub mod sop;
-#[cfg(feature = "agent-runtime")]
 pub mod tools;
-#[cfg(feature = "agent-runtime")]
 pub(crate) mod trust;
-#[cfg(feature = "tui-onboarding")]
 pub mod tui;
-#[cfg(feature = "agent-runtime")]
 pub(crate) mod tunnel;
-#[cfg(feature = "agent-runtime")]
+pub(crate) mod util;
 pub mod verifiable_intent;
 
 #[cfg(feature = "plugins-wasm")]

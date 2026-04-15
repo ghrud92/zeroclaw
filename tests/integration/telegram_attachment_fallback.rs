@@ -11,7 +11,7 @@
 use wiremock::matchers::{method, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use zeroclaw::channels::telegram::TelegramChannel;
-use zeroclaw::channels::{Channel, SendMessage};
+use zeroclaw::channels::traits::{Channel, SendMessage};
 
 /// Helper: create a TelegramChannel pointing at a mock server.
 fn test_channel(mock_url: &str) -> TelegramChannel {

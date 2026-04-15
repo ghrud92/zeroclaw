@@ -13,7 +13,7 @@ Các kiểm tra chặn merge nên giữ nhỏ và mang tính quyết định. C�
 - `.github/workflows/ci-run.yml` (`CI`)
     - Mục đích: Rust validation (`cargo fmt --all -- --check`, `cargo clippy --locked --all-targets -- -D clippy::correctness`, strict delta lint gate trên các dòng Rust thay đổi, `test`, kiểm tra smoke release build) + kiểm tra chất lượng tài liệu khi tài liệu thay đổi (`markdownlint` chỉ chặn các vấn đề trên dòng thay đổi; link check chỉ quét các link mới được thêm trên dòng thay đổi)
     - Hành vi bổ sung: đối với PR và push ảnh hưởng Rust, `CI Required Gate` yêu cầu `lint` + `test` + `build` (không có shortcut chỉ build trên PR)
-    - Hành vi bổ sung: các PR thay đổi `.github/workflows/**` yêu cầu ít nhất một review phê duyệt từ login trong `WORKFLOW_OWNER_LOGINS` (fallback biến repository: `theonlyhennygod,JordanTheJet`)
+    - Hành vi bổ sung: các PR thay đổi `.github/workflows/**` yêu cầu ít nhất một review phê duyệt từ login trong `WORKFLOW_OWNER_LOGINS` (fallback biến repository: `theonlyhennygod,JordanTheJet,SimianAstronaut7`)
     - Hành vi bổ sung: lint gate chạy trước `test`/`build`; khi lint/docs gate thất bại trên PR, CI đăng comment phản hồi hành động được với tên gate thất bại và các lệnh sửa cục bộ
     - Merge gate: `CI Required Gate`
 - `.github/workflows/workflow-sanity.yml` (`Workflow Sanity`)

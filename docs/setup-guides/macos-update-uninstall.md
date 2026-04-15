@@ -34,7 +34,15 @@ From your local repository checkout:
 
 ```bash
 git pull --ff-only
-./install.sh --skip-onboard
+./install.sh --prefer-prebuilt
+zeroclaw --version
+```
+
+If you want source-only update:
+
+```bash
+git pull --ff-only
+cargo install --path . --force --locked
 zeroclaw --version
 ```
 

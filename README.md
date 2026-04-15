@@ -113,7 +113,7 @@ Full beginner guide (auth, pairing, channels): [Getting started](docs/setup-guid
 
 ```bash
 # Install + onboard
-./install.sh
+./install.sh --api-key "sk-..." --provider openrouter
 
 # Start the gateway (webhook server + web dashboard)
 zeroclaw gateway                # default: 127.0.0.1:42617
@@ -564,22 +564,32 @@ Full commands reference: [docs/reference/cli/commands-reference.md](docs/referen
 
 #### One-Line Installer
 
-Or skip the steps above and install everything (Rust, ZeroClaw) in a single command:
+Or skip the steps above and install everything (system deps, Rust, ZeroClaw) in a single command:
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/master/install.sh | bash
 ```
 
-#### Build profiles
+#### Compilation resource requirements
+
+Building from source needs more resources than running the resulting binary:
+
+| Resource       | Minimum | Recommended |
+| -------------- | ------- | ----------- |
+| **RAM + swap** | 2 GB    | 4 GB+       |
+| **Free disk**  | 6 GB    | 10 GB+      |
+
+If your host is below the minimum, use pre-built binaries:
 
 ```bash
-./install.sh                                          # full (default features)
-./install.sh --minimal                                # kernel only (~6.6MB)
-./install.sh --minimal --features agent-runtime,channel-discord  # custom
-./install.sh --list-features                          # see all available features
+./install.sh --prefer-prebuilt
 ```
 
-For pre-built binaries, see [GitHub Releases](https://github.com/zeroclaw-labs/zeroclaw/releases/latest).
+To require binary-only install with no source fallback:
+
+```bash
+./install.sh --prebuilt-only
+```
 
 #### Optional
 

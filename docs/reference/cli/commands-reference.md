@@ -24,7 +24,8 @@ Last verified: **March 26, 2026**.
 | `integrations` | Inspect integration details |
 | `skills` | List/install/remove skills |
 | `migrate` | Import from external runtimes (currently OpenClaw) |
-| `config` | Manage configuration (view/set properties, export schema) |
+| `props` | View, set, or initialize config properties |
+| `config` | Export machine-readable config schema |
 | `completions` | Generate shell completion scripts to stdout |
 | `hardware` | Discover and introspect USB hardware |
 | `peripheral` | Configure and flash peripherals |
@@ -196,25 +197,9 @@ Skill manifests (`SKILL.toml`) support `prompts` and `[[tools]]`; both are injec
 
 ### `config`
 
-- `zeroclaw config list` — list all properties with current values
-- `zeroclaw config list --secrets` — list only secret (encrypted) fields
-- `zeroclaw config list --filter channels.matrix` — filter by path prefix
-- `zeroclaw config get <path>` — get a single property value (secrets show set/unset status)
-- `zeroclaw config set <path> <value>` — set a property value
-- `zeroclaw config set <path>` — secret fields prompt for masked input; enum fields offer interactive selection
-- `zeroclaw config set --no-interactive <path> <value>` — scripted mode, no prompts
-- `zeroclaw config init <section>` — create an unconfigured section with defaults (`enabled=false`)
-- `zeroclaw config init` — initialize all unconfigured sections
-- `zeroclaw config schema` — print JSON Schema (draft 2020-12) to stdout
+- `zeroclaw config schema`
 
-Secret fields (API keys, tokens, passwords) are automatically detected via `#[secret]`
-annotations. When setting a secret, input is masked regardless of whether a value is
-provided on the command line.
-
-Enum fields (e.g. `stream-mode`, `search-mode`) offer interactive selection via arrow
-keys when the value is omitted. Provide the value directly to skip the prompt.
-
-Shell tab-completion for property paths is included in `zeroclaw completions <shell>`.
+`config schema` prints a JSON Schema (draft 2020-12) for the full `config.toml` contract to stdout.
 
 ### `completions`
 
@@ -240,14 +225,34 @@ Shell tab-completion for property paths is included in `zeroclaw completions <sh
 - `zeroclaw peripheral setup-uno-q [--host <ip_or_host>]`
 - `zeroclaw peripheral flash-nucleo`
 
-### `props` (deprecated)
+### `props`
 
-`zeroclaw props` has been renamed to `zeroclaw config`. Replace `props` with `config` in your commands.
+Manage individual config properties without editing `config.toml` directly.
+Properties are addressed by dotted path (e.g. `channels.matrix.mention-only`).
+
+- `zeroclaw props list` — list all properties with current values
+- `zeroclaw props list --secrets` — list only secret (encrypted) fields
+- `zeroclaw props list --filter channels.matrix` — filter by path prefix
+- `zeroclaw props get <path>` — get a single property value (secrets show set/unset status)
+- `zeroclaw props set <path> <value>` — set a property value
+- `zeroclaw props set <path>` — secret fields prompt for masked input; enum fields offer interactive selection
+- `zeroclaw props set --no-interactive <path> <value>` — scripted mode, no prompts
+- `zeroclaw props init <section>` — create an unconfigured section with defaults (`enabled=false`)
+- `zeroclaw props init` — initialize all unconfigured sections
+
+Secret fields (API keys, tokens, passwords) are automatically detected via `#[secret]`
+annotations. When setting a secret, input is masked regardless of whether a value is
+provided on the command line.
+
+Enum fields (e.g. `stream-mode`, `search-mode`) offer interactive selection via arrow
+keys when the value is omitted. Provide the value directly to skip the prompt.
+
+Shell tab-completion for property paths is included in `zeroclaw completions <shell>`.
 
 #### Adding new config fields
 
 Config structs derive `Configurable` with `#[prefix]` and `#[nested]` attributes.
-Adding a new field to an existing struct makes it immediately available via `config`.
+Adding a new field to an existing struct makes it immediately available via `props`.
 New enum types require a one-line `HasPropKind` impl. See `CONTRIBUTING.md` for details.
 
 ## Validation Tip
